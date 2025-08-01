@@ -259,19 +259,32 @@ type ChatResponse struct {
 	Usage   any
 }
 
+func (s *ChatSession) selectModel(override string) (string, error) {
+	if m := cmp.Or(override, s.model); m != "" {
+		return m, nil
+	}
+
+	return "", ErrNoModelSelected
+}
+
 // Send sends user messages and returns a response.
 // The assistant's reply is appended to the internal history.
-func (s *ChatSession) Send(ctx context.Context, contents ...string) (*ChatResponse, error) {
-	slog.Info("send chat turn", "model", s.model, "history_len", len(s.history))
+func (s *ChatSession) Send(ctx context.Context, model string, contents ...string) (*ChatResponse, error) {
+	model, err := s.selectModel(model)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("send chat turn", "model", model, "history_len", len(s.history))
 
 	s.appendUserMessages(contents)
 
 	chatReq := openai.ChatCompletionNewParams{
-		Model:    s.model,
+		Model:    model,
 		Messages: s.history,
 	}
 
-	slog.Debug("chat request", "model", s.model, "message_count", len(chatReq.Messages))
+	slog.Debug("chat request", "model", model, "message_count", len(chatReq.Messages))
 
 	completion, err := s.client.Chat.Completions.New(ctx, chatReq)
 	if err != nil {
@@ -298,13 +311,18 @@ func (s *ChatSession) Send(ctx context.Context, contents ...string) (*ChatRespon
 
 // SendStreaming sends user messages and returns a streaming response iterator.
 // The assistant's full reply is added to history after streaming completes.
-func (s *ChatSession) SendStreaming(ctx context.Context, contents ...string) (ChatResponseIterator, error) {
-	slog.Info("start streaming request", "model", s.model)
+func (s *ChatSession) SendStreaming(ctx context.Context, model string, contents ...string) (ChatResponseIterator, error) {
+	model, err := s.selectModel(model)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("start streaming request", "model", model)
 
 	s.appendUserMessages(contents)
 
 	req := openai.ChatCompletionNewParams{
-		Model:    s.model,
+		Model:    model,
 		Messages: s.history,
 	}
 	stream := s.client.Chat.Completions.NewStreaming(ctx, req)
